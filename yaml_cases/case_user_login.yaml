@@ -1,0 +1,89 @@
+name: 搜索高级连击并抓取数据
+
+steps:
+  # 1. 打开初始页面
+  - action: goto
+    url: https://xyq.cbg.163.com/cgi-bin/query.py?act=recommend_search&recommend_type=1
+
+  # 2. 等待顶部搜索框出现（需 F12 确认真实选择器）
+  # 从截图看，搜索框在右上角
+  - action: wait_for_selector
+    selector: "#advance_search_box"
+    timeout: 10000
+
+  # 3. 填入搜索词“高级必杀”
+  - action: fill
+    selector: "#advance_search_box"
+    value: "高级连击"
+
+  # 4. 点击“搜索”按钮
+  - action: click
+    selector: "#search_browse_f > input.btn1"
+
+  # 5. 等待 ★ 重点：点击搜索后，页面可能会跳转或刷新，加一个等待网络空闲
+  # 如果搜索后是在当前页 AJAX 刷新，这步不会卡住，但能保证请求已发出
+  - action: wait_timeout
+    ms: 1500
+
+  # 6. 等待“努力加载中”的提示消失
+  # Playwright 的 text 选择器可以直接匹配文字
+  - action: wait_for_selector
+    selector: "text=努力加载中"
+    state: hidden
+    timeout: 15000
+
+  # 7. 悬停“价格”筛选：下拉菜单是 hover 才展开的
+  - action: hover
+    selector: '#qFiltersNotMoney li.qFilter[data-name="price"] > a.dropSwitch'
+    # ★ force=true 必须加：菜单一展开就盖住触发元素，默认指针事件检查会一直重试到超时
+    force: true
+
+  # 8. 等下拉菜单真正可见后，再点“价格从低到高”
+  #    ★ “价格”“总价”两个筛选组都叫 data-name="price"，必须用容器 id 限定
+  - action: wait_for_selector
+    selector: '#qFiltersNotMoney li.qFilter[data-name="price"] ul.dropList a.dropText[data-sort="ASC"]'
+    state: visible
+    timeout: 10000
+  - action: click
+    selector: '#qFiltersNotMoney li.qFilter[data-name="price"] ul.dropList a.dropText[data-sort="ASC"]'
+
+  # 排序是 AJAX 刷新，等列表重绘，避免 extract 读到旧顺序
+  - action: wait_timeout
+    ms: 1500
+
+  # 9. 最终等表格 tbody 出现，并且带有数据行
+  - action: wait_for_selector
+    selector: "#soldList > tbody tr"
+    state: visible
+    timeout: 15000
+
+pagination:
+  # 依次点“下一页”，把每页 extract 的结果合并（表格追加）
+  next_selector: "div.qPager a.pNext"
+  page_info_selector: "div.qPager span.info"   # “1/5”
+  row_selector: "#soldList > tbody tr"
+  max_pages: 10
+  wait_after_ms: 800
+
+extract:
+  sold_rows:
+    type: table
+    selector: "#soldList > tbody"
+    row_selector: "tr"
+    columns:
+      - name: equip_name
+        selector: "td.equip_name span.vertical-middle"
+        attr: "text"
+      - name: price
+        selector: "td:first-child img"
+        attr: "data_price"
+      - name: selling_time
+        selector: "td:first-child img"
+        attr: "data_selling_time"
+      - name: time_left
+        selector: "td:nth-child(5)"
+        attr: "text"
+
+validate:
+  length_greater:
+    列表有数据: ['${sold_rows}', 0]
